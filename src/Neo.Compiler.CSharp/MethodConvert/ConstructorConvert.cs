@@ -20,7 +20,7 @@ namespace Neo.Compiler;
 
 partial class MethodConvert
 {
-    private void ProcessFields(SemanticModel model)
+    private void ProcessFields(SemanticModel model, SeparatedSyntaxList<TypeParameterSyntax>? parameterSyntaxes = null)
     {
         _initslot = true;
         IFieldSymbol[] fields = Symbol.ContainingType.GetFields();

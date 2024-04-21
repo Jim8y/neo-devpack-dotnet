@@ -182,14 +182,23 @@ namespace Neo.Compiler
                 switch (Symbol.MethodKind)
                 {
                     case MethodKind.Constructor:
-                        ProcessFields(model);
+
+                        if (SyntaxNode is ClassDeclarationSyntax { TypeParameterList: not null } classDeclarationSyntax &&
+                            classDeclarationSyntax.TypeParameterList.Parameters.Count != 0)
+                        {
+                            ProcessFields(model, classDeclarationSyntax.TypeParameterList.Parameters);
+                        }
+                        else
+                        {
+                            ProcessFields(model);
+                        }
                         ProcessConstructorInitializer(model);
                         break;
                     case MethodKind.StaticConstructor:
                         ProcessStaticFields(model);
                         break;
                     default:
-                        if (Symbol.Name.StartsWith("_") && !Helper.IsInternalCoreMethod(Symbol))
+                        if (Symbol.Name.StartsWith("_") && !Symbol.IsInternalCoreMethod())
                             throw new CompilationException(Symbol, DiagnosticId.InvalidMethodName, $"The method name {Symbol.Name} is not valid.");
                         break;
                 }
@@ -246,6 +255,26 @@ namespace Neo.Compiler
             if (_context.Options.Optimize.HasFlag(CompilationOptions.OptimizationType.Basic))
                 BasicOptimizer.RemoveNops(_instructions);
             _startTarget.Instruction = _instructions[0];
+        }
+
+        public static ConstructorDeclarationSyntax? GetConstructorDeclaration(IMethodSymbol constructorSymbol)
+        {
+            // 检查构造函数符号是否有关联的语法引用
+            if (constructorSymbol.DeclaringSyntaxReferences.IsEmpty)
+                return null;
+
+            // 获取第一个语法引用(通常构造函数只有一个声明)
+            SyntaxReference syntaxReference = constructorSymbol.DeclaringSyntaxReferences.First();
+
+            // 获取实际的语法节点
+            SyntaxNode syntaxNode = syntaxReference.GetSyntax();
+
+            // 检查语法节点是否为构造函数声明
+            if (syntaxNode is ConstructorDeclarationSyntax constructorDeclaration)
+                return constructorDeclaration;
+
+            // 如果不是构造函数声明,则返回 null
+            return null;
         }
 
         public void ConvertForward(SemanticModel model, MethodConvert target)

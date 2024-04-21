@@ -39,6 +39,7 @@ partial class MethodConvert
         {
             CreateObject(model, type, null);
         }
+
         Call(model, constructor, needCreateObject, arguments);
         if (expression.Initializer is not null)
         {
