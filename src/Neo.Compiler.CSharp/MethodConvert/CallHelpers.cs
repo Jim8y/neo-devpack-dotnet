@@ -58,7 +58,7 @@ partial class MethodConvert
         }
         else
         {
-            if(symbol.ToString().Contains("MyTokenState(string)"))
+            if (symbol.ToString().Contains("MyTokenState(string)"))
                 Console.WriteLine("xxx");
             convert = _context.ConvertMethod(model, symbol);
             methodCallingConvention = convert._callingConvention;

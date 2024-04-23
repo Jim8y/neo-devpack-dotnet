@@ -49,7 +49,7 @@ partial class MethodConvert
                     // but the expression body has a return value, example: a+=1;
                     // drop the return value
                     // Problem:
-                    //   public void Test() => a+=1; // this will push a int value to the stack
+                    //   public void Test() => a+=1; // this will push an int value to the stack
                     //   public void Test() { a+=1; } // this will not push value to the stack
                     if (syntax is MethodDeclarationSyntax methodSyntax
                         && methodSyntax.ReturnType.ToString() == "void"

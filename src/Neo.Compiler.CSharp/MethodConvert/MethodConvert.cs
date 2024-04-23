@@ -257,26 +257,23 @@ namespace Neo.Compiler
             _startTarget.Instruction = _instructions[0];
         }
 
-        public static ConstructorDeclarationSyntax? GetConstructorDeclaration(IMethodSymbol constructorSymbol)
-        {
-            // 检查构造函数符号是否有关联的语法引用
-            if (constructorSymbol.DeclaringSyntaxReferences.IsEmpty)
-                return null;
-
-            // 获取第一个语法引用(通常构造函数只有一个声明)
-            SyntaxReference syntaxReference = constructorSymbol.DeclaringSyntaxReferences.First();
-
-            // 获取实际的语法节点
-            SyntaxNode syntaxNode = syntaxReference.GetSyntax();
-
-            // 检查语法节点是否为构造函数声明
-            if (syntaxNode is ConstructorDeclarationSyntax constructorDeclaration)
-                return constructorDeclaration;
-
-            // 如果不是构造函数声明,则返回 null
-            return null;
-        }
-
+        /// <summary>
+        /// Converts a forwarding method by creating an object of the containing type and jumping to the target method.
+        /// </summary>
+        /// <param name="model">The semantic model used for compilation.</param>
+        /// <param name="target">The target method to which the forwarding method should jump.</param>
+        /// <exception cref="CompilationException">
+        /// Thrown when the containing type does not have a parameterless constructor.
+        /// </exception>
+        /// <remarks>
+        /// This method performs the following steps to convert a forwarding method:
+        ///     1. Retrieves the containing type symbol of the current method.
+        ///     2. Creates an object of the containing type using the <see cref="CreateObject"/> method, passing <c>null</c> for the initializer.
+        ///     3. Finds the parameterless constructor of the containing type. If no parameterless constructor is found, throws a <see cref="CompilationException"/>.
+        ///     4. Calls the parameterless constructor using the <see cref="Call"/> method, passing an empty array of <see cref="ArgumentSyntax"/>.
+        ///     5. Sets the return target instruction to jump to the start target of the <paramref name="target"/> method using the <see cref="Jump"/> method.
+        ///     6. Sets the start target instruction to the first instruction in the current method.
+        /// </remarks>
         public void ConvertForward(SemanticModel model, MethodConvert target)
         {
             INamedTypeSymbol type = Symbol.ContainingType;
@@ -288,40 +285,103 @@ namespace Neo.Compiler
             _startTarget.Instruction = _instructions[0];
         }
 
+        /// <summary>
+        /// Processes the initializer for a field.
+        /// </summary>
+        /// <param name="model">The semantic model.</param>
+        /// <param name="field">The field symbol.</param>
+        /// <param name="preInitialize">The action to be executed before field initialization.</param>
+        /// <param name="postInitialize">The action to be executed after field initialization.</param>
+        /// <remarks>
+        /// This method handles the initialization of a field based on its attributes and initializer syntax.
+        /// If the field has an <see cref="InitialValueAttribute"/> or its subclass attribute, the initial value
+        /// is obtained from the attribute and processed according to the specified contract parameter type.
+        /// The <see cref="InitialValueAttribute"/> has the highest priority. If an initial value is set in multiple ways
+        /// along with <see cref="InitialValueAttribute"/>, the value from <see cref="InitialValueAttribute"/> will be adopted.
+        /// If the field doesn't have an initializer attribute, the method attempts to retrieve the initializer
+        /// syntax from the field's declaring syntax references or the associated property's syntax.
+        /// The method converts the initializer expression and executes the pre-initialization and post-initialization
+        /// actions if provided.
+        /// </remarks>
+        /// <exception cref="CompilationException">
+        /// Thrown when an unsupported initial value type is encountered or when an invalid initial value is specified.
+        /// </exception>
         private void ProcessFieldInitializer(SemanticModel model, IFieldSymbol field, Action? preInitialize, Action? postInitialize)
         {
+            // Check if the field has an InitialValueAttribute or its subclass attribute
             AttributeData? initialValue = field.GetAttributes().FirstOrDefault(p => p.AttributeClass!.Name == nameof(InitialValueAttribute) || p.AttributeClass!.IsSubclassOf(nameof(InitialValueAttribute)));
+
             if (initialValue is null)
             {
+                // Initializer examples:
+                //      private int myField = 10; // Field initializer
+                //      public string MyProperty { get; set; } = "Hello"; // Property initializer
                 EqualsValueClauseSyntax? initializer;
                 SyntaxNode syntaxNode;
+
+                // Check if the field does not have any declaring syntax references
+                // This can happen when the field is generated by the compiler
+                // (e.g., backing field for an auto-implemented property)
+                // Example:
+                //      public class Person
+                //      {
+                //           public string Name { get; set; }
+                //           public int Age { get; set; }
+                //      }
                 if (field.DeclaringSyntaxReferences.IsEmpty)
                 {
+                    // If the field is not associated with a property, return
                     if (field.AssociatedSymbol is not IPropertySymbol property) return;
+
+                    // Get the property declaration syntax from the associated property's declaring syntax references
                     PropertyDeclarationSyntax syntax = (PropertyDeclarationSyntax)property.DeclaringSyntaxReferences[0].GetSyntax();
                     syntaxNode = syntax;
                     initializer = syntax.Initializer;
                 }
                 else
                 {
+                    // If the field has declaring syntax references, get the variable declarator syntax from the first reference
                     VariableDeclaratorSyntax syntax = (VariableDeclaratorSyntax)field.DeclaringSyntaxReferences[0].GetSyntax();
                     syntaxNode = syntax;
                     initializer = syntax.Initializer;
                 }
+
+                // If the field or property does not have an initializer, return
                 if (initializer is null) return;
+
+                // Get the semantic model for the syntax node's syntax tree
                 model = model.Compilation.GetSemanticModel(syntaxNode.SyntaxTree);
+
+                // Insert a sequence point for the syntax node
                 using (InsertSequencePoint(syntaxNode))
                 {
+                    // Invoke the pre-initialization action, if provided
                     preInitialize?.Invoke();
+
+                    // Convert the initializer expression
                     ConvertExpression(model, initializer.Value, syntaxNode);
+
+                    // Invoke the post-initialization action, if provided
                     postInitialize?.Invoke();
                 }
             }
             else
             {
+                // If the field has an InitialValueAttribute or its subclass attribute
+                // Invoke the pre-initialization action, if provided
                 preInitialize?.Invoke();
+
+                // Get the initial value from the attribute's constructor argument
                 string value = (string)initialValue.ConstructorArguments[0].Value!;
+
+                // Get the attribute name
                 var attributeName = initialValue.AttributeClass!.Name;
+
+                // Determine the contract parameter type based on the attribute name
+                // This is the old way of setting the initialvalue,
+                // user can directly assign them via string now,
+                // ref. https://github.com/neo-project/neo-devpack-dotnet/pull/974
+                // and analyzer can verify the format, ensuring the correctness of assigned value.
                 ContractParameterType parameterType = attributeName switch
                 {
                     nameof(InitialValueAttribute) => (ContractParameterType)initialValue.ConstructorArguments[1].Value!,
@@ -334,6 +394,7 @@ namespace Neo.Compiler
 
                 try
                 {
+                    // Process the initial value based on the contract parameter type
                     switch (parameterType)
                     {
                         case ContractParameterType.String:
@@ -354,12 +415,15 @@ namespace Neo.Compiler
                 }
                 catch (Exception ex) when (ex is not CompilationException)
                 {
+                    // If an exception occurs during the processing of the initial value (excluding CompilationException),
+                    // throw a CompilationException with the field information and the invalid initial value details
                     throw new CompilationException(field, DiagnosticId.InvalidInitialValue, $"Invalid initial value: {value} of type: {parameterType}");
                 }
+
+                // Invoke the post-initialization action, if provided
                 postInitialize?.Invoke();
             }
         }
-
         private IEnumerable<(byte fieldIndex, AttributeData attribute)> ConvertModifier(SemanticModel model)
         {
             foreach (var attribute in Symbol.GetAttributesWithInherited())
@@ -414,7 +478,7 @@ namespace Neo.Compiler
         /// <returns></returns>
         private Instruction LdArgSlot(IParameterSymbol parameter)
         {
-            if (_context.TryGetCaptruedStaticField(parameter, out var staticFieldIndex))
+            if (_context.TryGetCapturedStaticField(parameter, out var staticFieldIndex))
             {
                 //using created static fields
                 return AccessSlot(OpCode.LDSFLD, staticFieldIndex);
@@ -438,7 +502,7 @@ namespace Neo.Compiler
         /// <returns></returns>
         private Instruction StArgSlot(IParameterSymbol parameter)
         {
-            if (_context.TryGetCaptruedStaticField(parameter, out var staticFieldIndex))
+            if (_context.TryGetCapturedStaticField(parameter, out var staticFieldIndex))
             {
                 //using created static fields
                 return AccessSlot(OpCode.STSFLD, staticFieldIndex);
@@ -462,7 +526,7 @@ namespace Neo.Compiler
         /// <returns></returns>
         private Instruction LdLocSlot(ILocalSymbol local)
         {
-            if (_context.TryGetCaptruedStaticField(local, out var staticFieldIndex))
+            if (_context.TryGetCapturedStaticField(local, out var staticFieldIndex))
             {
                 //using created static fields
                 return AccessSlot(OpCode.LDSFLD, staticFieldIndex);
@@ -486,7 +550,7 @@ namespace Neo.Compiler
         /// <returns></returns>
         private Instruction StLocSlot(ILocalSymbol local)
         {
-            if (_context.TryGetCaptruedStaticField(local, out var staticFieldIndex))
+            if (_context.TryGetCapturedStaticField(local, out var staticFieldIndex))
             {
                 //using created static fields
                 return AccessSlot(OpCode.STSFLD, staticFieldIndex);
@@ -646,33 +710,100 @@ namespace Neo.Compiler
                 ConvertExpression(model, expression);
         }
 
+        /// <summary>
+        /// Creates a new object of the specified type (class/struct) and initializes its fields.
+        /// </summary>
+        /// <param name="model">The semantic model used for compilation.</param>
+        /// <param name="type">The type of the object to be created.</param>
+        /// <param name="initializer">The initializer expression syntax for the object, if any.</param>
+        /// <remarks>
+        /// This method creates a new object of the specified <paramref name="type"/> and initializes its fields.
+        /// The process of creating and initializing the object depends on whether the type is a value type or a reference type,
+        /// and whether it has any fields or virtual methods.
+        ///
+        /// If the type is a value type or has no fields, the method takes the following steps:
+        ///     1. Adds an <see cref="OpCode.NEWSTRUCT0"/> instruction for value types, or a <see cref="OpCode.NEWARRAY0"/> instruction for reference types with no fields.
+        ///     2. For each field in the type, it duplicates the object reference (using <see cref="OpCode.DUP"/>),
+        ///         initializes the field value (using <see cref="InitializeFieldForObject"/>), and appends the field to the object (using <see cref="OpCode.APPEND"/>).
+        ///
+        /// If the type is a reference type with fields, the method takes the following steps:
+        ///     1. Initializes each field in reverse order by calling <see cref="InitializeFieldForObject"/> for each field.
+        ///     2. Pushes the number of fields onto the evaluation stack.
+        ///     3. Adds an <see cref="OpCode.PACK"/> instruction to create an array representing the object's fields.
+        ///
+        /// If the type has any virtual methods, the method adds the object's virtual method table to the object:
+        ///     1. Retrieves the index of the virtual method table for the type using <see cref="CompilationContext.AddVTable"/>.
+        ///     2. Duplicates the object reference (using <see cref="OpCode.DUP"/>).
+        ///     3. Loads the virtual method table onto the evaluation stack (using <see cref="AccessSlot"/> with <see cref="OpCode.LDSFLD"/>).
+        ///     4. Appends the virtual method table to the object (using <see cref="OpCode.APPEND"/>).
+        ///
+        /// The <paramref name="initializer"/> parameter is used to pass any initializer expressions for the object's fields,
+        /// which are handled by the <see cref="InitializeFieldForObject"/> method.
+        /// </remarks>
         private void CreateObject(SemanticModel model, ITypeSymbol type, InitializerExpressionSyntax? initializer)
         {
+            // Get all non-static members of the type
+            //
             ISymbol[] members = type.GetAllMembers().Where(p => !p.IsStatic).ToArray();
+
+            // Get all field symbols from the non-static members
             IFieldSymbol[] fields = members.OfType<IFieldSymbol>().ToArray();
+
             if (fields.Length == 0 || type.IsValueType)
             {
+                // If the type is a value type or has no fields
+
+                // Add NEWSTRUCT0 instruction for value types, or NEWARRAY0 instruction for reference types with no fields
                 AddInstruction(type.IsValueType ? OpCode.NEWSTRUCT0 : OpCode.NEWARRAY0);
+
                 foreach (IFieldSymbol field in fields)
                 {
+                    // For each field in the type
+
+                    // Duplicate the object reference on the stack
                     AddInstruction(OpCode.DUP);
+
+                    // Initialize the field value
                     InitializeFieldForObject(model, field, initializer);
+
+                    // Append the field to the object
                     AddInstruction(OpCode.APPEND);
                 }
             }
             else
             {
+                // If the type is a reference type with fields
+
+                // Initialize each field in reverse order
                 for (int i = fields.Length - 1; i >= 0; i--)
+                {
                     InitializeFieldForObject(model, fields[i], initializer);
+                }
+
+                // Push the number of fields onto the evaluation stack
                 Push(fields.Length);
+
+                // Create an array representing the object's fields
                 AddInstruction(OpCode.PACK);
             }
+
+            // Get all virtual method symbols from the non-static members
             IMethodSymbol[] virtualMethods = members.OfType<IMethodSymbol>().Where(p => p.IsVirtualMethod()).ToArray();
+
             if (virtualMethods.Length > 0)
             {
+                // If the type has any virtual methods
+
+                // Get the index of the virtual method table for the type
                 byte index = _context.AddVTable(type);
+
+                // Duplicate the object reference on the stack
                 AddInstruction(OpCode.DUP);
+
+                // Load the virtual method table onto the evaluation stack
                 AccessSlot(OpCode.LDSFLD, index);
+
+                // Append the virtual method table to the object
                 AddInstruction(OpCode.APPEND);
             }
         }

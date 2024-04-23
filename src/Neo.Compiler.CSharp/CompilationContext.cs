@@ -309,12 +309,36 @@ namespace Neo.Compiler
             };
         }
 
+        /// <summary>
+        /// Processes a compilation unit by recursively processing its member declarations.
+        /// </summary>
+        /// <param name="processed">A set of processed named type symbols.</param>
+        /// <param name="model">The semantic model used for compilation.</param>
+        /// <param name="syntax">The compilation unit syntax to be processed.</param>
+        /// <remarks>
+        /// This method iterates through the member declarations of the compilation unit
+        /// and calls the <see cref="ProcessMemberDeclaration"/> method for each member.
+        /// </remarks>
         private void ProcessCompilationUnit(HashSet<INamedTypeSymbol> processed, SemanticModel model, CompilationUnitSyntax syntax)
         {
             foreach (MemberDeclarationSyntax member in syntax.Members)
                 ProcessMemberDeclaration(processed, model, member);
         }
 
+        /// <summary>
+        /// Processes a member declaration by recursively processing its nested members or classes.
+        /// </summary>
+        /// <param name="processed">A set of processed named type symbols.</param>
+        /// <param name="model">The semantic model used for compilation.</param>
+        /// <param name="syntax">The member declaration syntax to be processed.</param>
+        /// <remarks>
+        /// This method handles the processing of different types of member declarations:
+        /// - For a namespace declaration, it recursively calls <see cref="ProcessMemberDeclaration"/>
+        ///   for each member declaration within the namespace.
+        /// - For a class declaration, it retrieves the corresponding named type symbol using the semantic model.
+        ///   If the class has not been processed before (i.e., not present in the <paramref name="processed"/> set),
+        ///   it adds the class symbol to the set and calls the <see cref="ProcessClass"/> method to process the class.
+        /// </remarks>
         private void ProcessMemberDeclaration(HashSet<INamedTypeSymbol> processed, SemanticModel model, MemberDeclarationSyntax syntax)
         {
             switch (syntax)
@@ -330,6 +354,24 @@ namespace Neo.Compiler
             }
         }
 
+        /// <summary>
+        /// Processes a class symbol by analyzing its attributes, members, and smart contract-related properties.
+        /// </summary>
+        /// <param name="model">The semantic model used for compilation.</param>
+        /// <param name="symbol">The class symbol to be processed.</param>
+        /// <remarks>
+        /// This method processes a class symbol and performs the following tasks:
+        /// 1. Skips processing if the class is a subclass of <see cref="Attribute"/>.
+        /// 2. Determines if the class is public, abstract, and a subclass of <see cref="SmartContract"/>.
+        /// 3. If the class is a smart contract:
+        ///    - Skips processing if the class name does not match the target contract name (for processing multi-contracts in one solution).
+        ///    - Processes the class attributes, including <see cref="ManifestExtraAttribute"/>, <see cref="DisplayNameAttribute"/>,
+        ///      <see cref="ContractSourceCodeAttribute"/>, <see cref="ContractPermissionAttribute"/>, <see cref="ContractTrustAttribute"/>,
+        ///      and <see cref="SupportedStandardsAttribute"/>.
+        ///    - Sets the class name.
+        /// 4. Processes the class members, including events and methods (excluding the built-in method "_initialize" and static constructors).
+        /// 5. If the class is a smart contract, processes the "_initialize" method or the first static constructor.
+        /// </remarks>
         private void ProcessClass(SemanticModel model, INamedTypeSymbol symbol)
         {
             if (symbol.IsSubclassOf(nameof(Attribute))) return;
@@ -417,13 +459,31 @@ namespace Neo.Compiler
 
         private void ProcessEvent(IEventSymbol symbol)
         {
+            // Only public event will be processed, private event is useless, wont have any effect.
             if (symbol.DeclaredAccessibility != Accessibility.Public) return;
             INamedTypeSymbol type = (INamedTypeSymbol)symbol.Type;
             if (!type.DelegateInvokeMethod!.ReturnsVoid)
-                throw new CompilationException(symbol, DiagnosticId.EventReturns, $"Event return value is not supported.");
+                throw new CompilationException(symbol, DiagnosticId.EventReturns, "Event return value is not supported.");
             AddEvent(new AbiEvent(symbol), true);
         }
 
+        /// <summary>
+        /// Adds an event to the list of contract events.
+        /// </summary>
+        /// <param name="ev">The <see cref="AbiEvent"/> instance representing the event to be added.</param>
+        /// <param name="throwErrorIfExists">Indicates whether to throw an exception if an event with the same name already exists.</param>
+        /// <remarks>
+        /// This method adds the specified <see cref="AbiEvent"/> instance to the list of exported events.
+        /// Before adding the event, it checks if an event with the same name already exists in the list.
+        /// If an event with the same name exists and <paramref name="throwErrorIfExists"/> is set to true,
+        /// it throws a <see cref="CompilationException"/> indicating a duplicate event name.
+        /// If an event with the same name exists and <paramref name="throwErrorIfExists"/> is set to false,
+        /// the method returns without adding the event.
+        /// And there is a built in Debug event that will be automatically added when user use Debug(string)/>
+        /// </remarks>
+        /// <exception cref="CompilationException">
+        /// Thrown if an event with the same name already exists and <paramref name="throwErrorIfExists"/> is set to true.
+        /// </exception>
         internal void AddEvent(AbiEvent ev, bool throwErrorIfExists)
         {
             if (_eventsExported.Any(u => u.Name == ev.Name))
@@ -434,6 +494,35 @@ namespace Neo.Compiler
             _eventsExported.Add(ev);
         }
 
+        /// <summary>
+        /// Processes a method symbol by converting it and optionally exporting it.
+        /// </summary>
+        /// <param name="model">The semantic model used for compilation.</param>
+        /// <param name="symbol">The method symbol to be processed.</param>
+        /// <param name="export">Indicates whether the method should be exported.</param>
+        /// <remarks>
+        /// This method performs the following steps:
+        /// 1. Skips processing if the method is abstract.
+        /// 2. Checks the method's accessibility and kind to determine if it should be exported (public method of subclass of <see cref="SmartContract"/>).
+        /// 3. If the method is to be exported:
+        ///    - Creates an <see cref="AbiMethod"/> instance from the method symbol.
+        ///    - Checks for duplicate method keys and throws a <see cref="CompilationException"/> if found.
+        ///    - Adds the <see cref="AbiMethod"/> instance to the list of exported methods.
+        /// 4. Checks if the method has the <see cref="MethodImplAttribute"/> with <see cref="MethodImplOptions.AggressiveInlining"/> option:
+        ///    - If the method is to be exported, throws a <see cref="CompilationException"/> indicating unsupported syntax, as we can not inline a contract interface.
+        ///    - If the method is not to be exported, returns without further processing.
+        /// 5. Converts the method using the <see cref="ConvertMethod"/> method.
+        /// 6. If the method is to be exported and is not static:
+        ///    - Creates a new <see cref="MethodConvert"/> instance for forwarding.
+        ///    - Converts the method for forwarding using the <see cref="MethodConvert.ConvertForward"/> method.
+        ///    - Adds the forwarding <see cref="MethodConvert"/> instance to the list of forwarding methods for caching.
+        /// </remarks>
+        /// <exception cref="CompilationException">
+        /// Thrown in the following cases:
+        /// - If a duplicate method key (same method name with same number of parameters)
+        ///     is found when exporting the method.
+        /// - If the method to be exported has the <see cref="MethodImplAttribute"/> with <see cref="MethodImplOptions.AggressiveInlining"/> option.
+        /// </exception>
         private void ProcessMethod(SemanticModel model, IMethodSymbol symbol, bool export)
         {
             if (symbol.IsAbstract) return;
@@ -463,6 +552,7 @@ namespace Neo.Compiler
             }
 
             MethodConvert convert = ConvertMethod(model, symbol);
+            // Non-static exporting method of the compiling contract
             if (export && !symbol.IsStatic)
             {
                 MethodConvert forward = new(this, symbol);
@@ -471,19 +561,46 @@ namespace Neo.Compiler
             }
         }
 
+        /// <summary>
+        /// Converts a method symbol to its corresponding <see cref="MethodConvert"/> representation.
+        /// </summary>
+        /// <param name="model">The semantic model used for compilation.</param>
+        /// <param name="symbol">The method symbol to be converted.</param>
+        /// <returns>The converted <see cref="MethodConvert"/> instance.</returns>
+        /// <remarks>
+        /// This method attempts to retrieve the converted method from the cache. If the method is not found in the cache,
+        /// a new <see cref="MethodConvert"/> instance is created, added to the cache, and then converted.
+        /// If the method symbol has declaring syntax references, the semantic model is updated to the one obtained from
+        /// the first syntax reference's syntax tree.
+        /// </remarks>
         internal MethodConvert ConvertMethod(SemanticModel model, IMethodSymbol symbol)
         {
+            // Try to get the converted method from the cache.
             if (!_methodsConverted.TryGetValue(symbol, out MethodConvert? method))
             {
+                // If the method is not found in the cache, create a new MethodConvert instance.
                 method = new MethodConvert(this, symbol);
+
+                // Add the newly created MethodConvert instance to the cache.
                 _methodsConverted.Add(method);
+
+                // Check if the method symbol has declaring syntax references.
+                // If the method is from a source assembly,
+                // then the compiler could not get the method's syntax tree from the symbol.
                 if (!symbol.DeclaringSyntaxReferences.IsEmpty)
                 {
+                    // Get the source assembly symbol that contains the method.
                     ISourceAssemblySymbol assembly = (ISourceAssemblySymbol)symbol.ContainingAssembly;
+
+                    // Update the semantic model to the one obtained from the first syntax reference's syntax tree.
                     model = assembly.Compilation.GetSemanticModel(symbol.DeclaringSyntaxReferences[0].SyntaxTree);
                 }
+
+                // Convert the method using the updated semantic model.
                 method.Convert(model);
             }
+
+            // Return the converted MethodConvert instance.
             return method;
         }
 
@@ -532,7 +649,7 @@ namespace Neo.Compiler
             return index;
         }
 
-        internal bool TryGetCaptruedStaticField(ISymbol local, out byte staticFieldIndex)
+        internal bool TryGetCapturedStaticField(ISymbol local, out byte staticFieldIndex)
         {
             return _capturedStaticFields.TryGetValue(local, out staticFieldIndex);
         }
