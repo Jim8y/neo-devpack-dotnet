@@ -14,6 +14,7 @@ using Neo.SmartContract.Framework.Attributes;
 using System;
 using System.ComponentModel;
 using System.Numerics;
+using Akka.Actor.Dsl;
 
 namespace Event;
 
@@ -30,11 +31,16 @@ public class SampleEvent : SmartContract
 
     public static event Action<byte[], BigInteger> event2;
 
+    // Neo does not support private events,
+    // so this event will not have any effect.
+    private static event Action<byte[]> event3;
+
     public static bool Main()
     {
-        byte[] ba = new byte[] { 0x01, 0x02, 0x03 };
+        byte[] ba = [0x01, 0x02, 0x03];
         event_name(ba, "oi", 10); // will Example.SmartContract.Runtime.Notify: 'new_event_name', '\x01\x02\x03', 'oi', 10
         event2(ba, 50); // will Example.SmartContract.Runtime.Notify: 'event2', '\x01\x02\x03', '\x32'
+        event3(ba);// This is a private event, so it will not have any effect.
         return false;
     }
 }

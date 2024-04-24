@@ -313,10 +313,14 @@ namespace Neo.Compiler
 
             if (initialValue is null)
             {
+<<<<<<< HEAD
                 // Initializer examples:
                 //      private int myField = 10; // Field initializer
                 //      public string MyProperty { get; set; } = "Hello"; // Property initializer
                 EqualsValueClauseSyntax? initializer;
+=======
+                EqualsValueClauseSyntax? initializer = null;
+>>>>>>> master
                 SyntaxNode syntaxNode;
 
                 // Check if the field does not have any declaring syntax references
@@ -332,11 +336,19 @@ namespace Neo.Compiler
                 {
                     // If the field is not associated with a property, return
                     if (field.AssociatedSymbol is not IPropertySymbol property) return;
+<<<<<<< HEAD
 
                     // Get the property declaration syntax from the associated property's declaring syntax references
                     PropertyDeclarationSyntax syntax = (PropertyDeclarationSyntax)property.DeclaringSyntaxReferences[0].GetSyntax();
                     syntaxNode = syntax;
                     initializer = syntax.Initializer;
+=======
+                    syntaxNode = property.DeclaringSyntaxReferences[0].GetSyntax();
+                    if (syntaxNode is PropertyDeclarationSyntax syntax)
+                    {
+                        initializer = syntax.Initializer;
+                    }
+>>>>>>> master
                 }
                 else
                 {
@@ -748,13 +760,12 @@ namespace Neo.Compiler
 
             // Get all field symbols from the non-static members
             IFieldSymbol[] fields = members.OfType<IFieldSymbol>().ToArray();
-
-            if (fields.Length == 0 || type.IsValueType)
+            if (fields.Length == 0 || type.IsValueType || type.IsRecord)
             {
                 // If the type is a value type or has no fields
 
                 // Add NEWSTRUCT0 instruction for value types, or NEWARRAY0 instruction for reference types with no fields
-                AddInstruction(type.IsValueType ? OpCode.NEWSTRUCT0 : OpCode.NEWARRAY0);
+                AddInstruction(type.IsValueType || type.IsRecord ? OpCode.NEWSTRUCT0 : OpCode.NEWARRAY0);
 
                 foreach (IFieldSymbol field in fields)
                 {
@@ -790,7 +801,7 @@ namespace Neo.Compiler
             // Get all virtual method symbols from the non-static members
             IMethodSymbol[] virtualMethods = members.OfType<IMethodSymbol>().Where(p => p.IsVirtualMethod()).ToArray();
 
-            if (virtualMethods.Length > 0)
+            if (!type.IsRecord && virtualMethods.Length > 0)
             {
                 // If the type has any virtual methods
 

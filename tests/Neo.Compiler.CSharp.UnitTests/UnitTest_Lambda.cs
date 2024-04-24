@@ -1,225 +1,212 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Neo.SmartContract.TestEngine;
-using Neo.VM.Types;
+using Neo.SmartContract.Testing;
+using Neo.SmartContract.Testing.TestingStandards;
+using System.Collections.Generic;
+using System.Numerics;
 
 namespace Neo.Compiler.CSharp.UnitTests
 {
     [TestClass]
-    public class UnitTest_Lambda
+    public class UnitTest_Lambda : TestBase<Contract_Lambda>
     {
-        private TestEngine testengine;
-        private TestDataCache snapshot;
-
-        [TestInitialize]
-        public void Init()
-        {
-            snapshot = new TestDataCache();
-            testengine = new TestEngine(snapshot: snapshot);
-            testengine.AddEntryScript(Utils.Extensions.TestContractRoot + "Contract_Lambda.cs");
-        }
+        public UnitTest_Lambda() : base(Contract_Lambda.Nef, Contract_Lambda.Manifest) { }
 
         [TestMethod]
         public void Test_AnyGreatThanZero()
         {
-            testengine.Reset();
-            var array = new Array();
-            array.Add(0);
-            array.Add(-1);
-            array.Add(-100);
-            var result = testengine.ExecuteTestCaseStandard("anyGreatThanZero", array).Pop();
-            Assert.AreEqual(false, result.GetBoolean());
+            var array = new List<object>
+            {
+                0,
+                -1,
+                -100
+            };
+            var result = Contract.AnyGreatThanZero(array);
+            Assert.AreEqual(false, result);
 
-            testengine.Reset();
             array.Add(1);
-            result = testengine.ExecuteTestCaseStandard("anyGreatThanZero", array).Pop();
-            Assert.AreEqual(true, result.GetBoolean());
+            result = Contract.AnyGreatThanZero(array);
+            Assert.AreEqual(true, result);
         }
 
         [TestMethod]
         public void Test_AnyGreatThan()
         {
-            testengine.Reset();
-            var array = new Array();
-            array.Add(0);
-            array.Add(-1);
-            array.Add(-100);
-            var result = testengine.ExecuteTestCaseStandard("anyGreatThan", array, 0).Pop();
-            Assert.AreEqual(false, result.GetBoolean());
+            var array = new List<object>
+            {
+                0,
+                -1,
+                -100
+            };
+            var result = Contract.AnyGreatThan(array, 0);
+            Assert.AreEqual(false, result);
 
-            testengine.Reset();
             array.Add(1);
-            result = testengine.ExecuteTestCaseStandard("anyGreatThan", array, 0).Pop();
-            Assert.AreEqual(true, result.GetBoolean());
+            result = Contract.AnyGreatThan(array, 0);
+            Assert.AreEqual(true, result);
 
-            testengine.Reset();
-            result = testengine.ExecuteTestCaseStandard("anyGreatThan", array, 100).Pop();
-            Assert.AreEqual(false, result.GetBoolean());
+            result = Contract.AnyGreatThan(array, 100);
+            Assert.AreEqual(false, result);
         }
 
         [TestMethod]
         public void Test_WhereGreaterThanZero()
         {
-            testengine.Reset();
-            var array = new Array();
-            array.Add(0);
-            array.Add(-1);
-            array.Add(-100);
-            var result = (Array)testengine.ExecuteTestCaseStandard("whereGreaterThanZero", array).Pop();
-            Assert.AreEqual(0, result.Count);
+            var array = new List<object>
+            {
+                0,
+                -1,
+                -100
+            };
+            var result = Contract.WhereGreaterThanZero(array);
+            Assert.AreEqual(0, result!.Count);
 
-            testengine.Reset();
             array.Add(1);
             array.Add(-8);
             array.Add(100);
             array.Add(56);
 
-            result = (Array)testengine.ExecuteTestCaseStandard("whereGreaterThanZero", array).Pop();
-            Assert.AreEqual(3, result.Count);
-            Assert.AreEqual(1, result[0]);
-            Assert.AreEqual(100, result[1]);
-            Assert.AreEqual(56, result[2]);
+            result = Contract.WhereGreaterThanZero(array);
+            Assert.AreEqual(3, result!.Count);
+            Assert.AreEqual(new BigInteger(1), result[0]);
+            Assert.AreEqual(new BigInteger(100), result[1]);
+            Assert.AreEqual(new BigInteger(56), result[2]);
         }
 
         [TestMethod]
         public void Test_ForEachVar()
         {
-            testengine.Reset();
-            var array = new Array();
-            array.Add(0);
-            array.Add(-1);
-            array.Add(-100);
-            var result = (Array)testengine.ExecuteTestCaseStandard("forEachVar", array).Pop();
-            Assert.AreEqual(array.Count, result.Count);
-            Assert.AreEqual(-100, result[0]);
+            var array = new List<object>
+            {
+                0,
+                -1,
+                -100
+            };
+            var result = Contract.ForEachVar(array);
+            Assert.AreEqual(array.Count, result!.Count);
+            Assert.AreEqual(new BigInteger(-100), result[0]);
         }
 
         [TestMethod]
         public void Test_ForVar()
         {
-            testengine.Reset();
-            var array = new Array();
-            array.Add(0);
-            array.Add(-1);
-            array.Add(-100);
-            var result = (Array)testengine.ExecuteTestCaseStandard("forVar", array).Pop();
-            Assert.AreEqual(array.Count, result.Count);
-            Assert.AreEqual(-100, result[0]);
+            var array = new List<object>
+            {
+                0,
+                -1,
+                -100
+            };
+            var result = Contract.ForVar(array);
+            Assert.AreEqual(array.Count, result!.Count);
+            Assert.AreEqual(new BigInteger(-100), result[0]);
         }
 
         [TestMethod]
         public void Test_ChangeName()
         {
-            testengine.Reset();
-            var result = testengine.ExecuteTestCaseStandard("changeName", "L").Pop();
-            Assert.AreEqual("L !!!", result.GetString());
+            var result = Contract.ChangeName("L");
+            Assert.AreEqual("L !!!", result);
         }
 
         [TestMethod]
         public void Test_ChangeName2()
         {
-            testengine.Reset();
-            var result = testengine.ExecuteTestCaseStandard("changeName2", "L").Pop();
-            Assert.AreEqual("L !!!", result.GetString());
+            var result = Contract.ChangeName2("L");
+            Assert.AreEqual("L !!!", result);
         }
 
         [TestMethod]
         public void Test_InvokeSum()
         {
-            testengine.Reset();
-            var result = testengine.ExecuteTestCaseStandard("invokeSum", 2, 3).Pop();
-            Assert.AreEqual(5, result.GetInteger());
+            var result = Contract.InvokeSum(2, 3);
+            Assert.AreEqual(5, result);
         }
 
         [TestMethod]
         public void Test_InvokeSum2()
         {
-            testengine.Reset();
-            var result = testengine.ExecuteTestCaseStandard("invokeSum2", 2, 3).Pop();
-            Assert.AreEqual(6, result.GetInteger());
+            var result = Contract.InvokeSum2(2, 3);
+            Assert.AreEqual(6, result);
         }
 
         [TestMethod]
         public void Test_Fibo()
         {
-            testengine.Reset();
-            var result = testengine.ExecuteTestCaseStandard("fibo", 2).Pop();
-            Assert.AreEqual(1, result.GetInteger());
+            var result = Contract.Fibo(2);
+            Assert.AreEqual(1, result);
 
-            testengine.Reset();
-            result = testengine.ExecuteTestCaseStandard("fibo", 3).Pop();
-            Assert.AreEqual(2, result.GetInteger());
+            result = Contract.Fibo(3);
+            Assert.AreEqual(2, result);
 
-            testengine.Reset();
-            result = testengine.ExecuteTestCaseStandard("fibo", 4).Pop();
-            Assert.AreEqual(3, result.GetInteger());
+            result = Contract.Fibo(4);
+            Assert.AreEqual(3, result);
         }
 
         [TestMethod]
         public void Test_CheckZero()
         {
-            testengine.Reset();
-            var result = testengine.ExecuteTestCaseStandard("checkZero", 0).Pop();
-            Assert.AreEqual(true, result.GetBoolean());
+            var result = Contract.CheckZero(0);
+            Assert.AreEqual(true, result);
 
-            testengine.Reset();
-            result = testengine.ExecuteTestCaseStandard("checkZero", 1).Pop();
-            Assert.AreEqual(false, result.GetBoolean());
+            result = Contract.CheckZero(1);
+            Assert.AreEqual(false, result);
 
-            testengine.Reset();
-            result = testengine.ExecuteTestCaseStandard("checkZero", -1).Pop();
-            Assert.AreEqual(false, result.GetBoolean());
+            result = Contract.CheckZero(-1);
+            Assert.AreEqual(false, result);
         }
 
         [TestMethod]
         public void Test_CheckZero2()
         {
-            testengine.Reset();
-            var result = testengine.ExecuteTestCaseStandard("checkZero2", 0).Pop();
-            Assert.AreEqual(true, result.GetBoolean());
+            var result = Contract.CheckZero2(0);
+            Assert.AreEqual(true, result);
 
-            testengine.Reset();
-            result = testengine.ExecuteTestCaseStandard("checkZero2", 1).Pop();
-            Assert.AreEqual(false, result.GetBoolean());
+            result = Contract.CheckZero2(1);
+            Assert.AreEqual(false, result);
 
-            testengine.Reset();
-            result = testengine.ExecuteTestCaseStandard("checkZero2", -1).Pop();
-            Assert.AreEqual(false, result.GetBoolean());
+            result = Contract.CheckZero2(-1);
+            Assert.AreEqual(false, result);
         }
 
         [TestMethod]
         public void Test_CheckZero3()
         {
-            testengine.Reset();
-            var result = testengine.ExecuteTestCaseStandard("checkZero3", 0).Pop();
-            Assert.AreEqual(true, result.GetBoolean());
+            var result = Contract.CheckZero3(0);
+            Assert.AreEqual(true, result);
 
-            testengine.Reset();
-            result = testengine.ExecuteTestCaseStandard("checkZero3", 1).Pop();
-            Assert.AreEqual(false, result.GetBoolean());
+            result = Contract.CheckZero3(1);
+            Assert.AreEqual(false, result);
 
-            testengine.Reset();
-            result = testengine.ExecuteTestCaseStandard("checkZero3", -1).Pop();
-            Assert.AreEqual(false, result.GetBoolean());
+            result = Contract.CheckZero3(-1);
+            Assert.AreEqual(false, result);
         }
 
         [TestMethod]
         public void Test_CheckPositiveOdd()
         {
-            testengine.Reset();
-            var result = testengine.ExecuteTestCaseStandard("checkPositiveOdd", 3).Pop();
-            Assert.AreEqual(true, result.GetBoolean());
+            var result = Contract.CheckPositiveOdd(3);
+            Assert.AreEqual(true, result);
 
-            testengine.Reset();
-            result = testengine.ExecuteTestCaseStandard("checkPositiveOdd", 0).Pop();
-            Assert.AreEqual(false, result.GetBoolean());
+            result = Contract.CheckPositiveOdd(0);
+            Assert.AreEqual(false, result);
 
-            testengine.Reset();
-            result = testengine.ExecuteTestCaseStandard("checkPositiveOdd", 2).Pop();
-            Assert.AreEqual(false, result.GetBoolean());
+            result = Contract.CheckPositiveOdd(2);
+            Assert.AreEqual(false, result);
 
-            testengine.Reset();
-            result = testengine.ExecuteTestCaseStandard("checkPositiveOdd", -1).Pop();
-            Assert.AreEqual(false, result.GetBoolean());
+            result = Contract.CheckPositiveOdd(-1);
+            Assert.AreEqual(false, result);
+        }
+
+        [TestMethod]
+        public void Test_LambdaDefault()
+        {
+            var result = Contract.TestLambdaDefault(3);
+            Assert.AreEqual(4, result);
+
+            result = Contract.TestLambdaDefault(5);
+            Assert.AreEqual(6, result);
+
+            result = Contract.TestLambdaNotDefault(5, 3);
+            Assert.AreEqual(8, result);
         }
     }
 }

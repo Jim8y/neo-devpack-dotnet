@@ -94,7 +94,7 @@ partial class MethodConvert
             case ArrayCreationExpressionSyntax expression:
                 ConvertArrayCreationExpression(model, expression);
                 break;
-            //Convert an assignment expression. 
+            //Convert an assignment expression.
             //Example: new int[4] { 5, 6, 7, 8};
             case AssignmentExpressionSyntax expression:
                 ConvertAssignmentExpression(model, expression);
@@ -223,10 +223,32 @@ partial class MethodConvert
             case SimpleLambdaExpressionSyntax expression:
                 ConvertSimpleLambdaExpression(model, expression);
                 break;
+            case CollectionExpressionSyntax expression:
+                ConvertCollectionExpression(model, expression);
+                break;
+            case WithExpressionSyntax expression:
+                ConvertWithExpressionSyntax(model, expression);
+                break;
             default:
                 //Example: typeof(Transaction);
                 throw new CompilationException(syntax, DiagnosticId.SyntaxNotSupported, $"Unsupported syntax: {syntax}");
         }
+    }
+
+    /// <summary>
+    /// Convert record with expression: record with{...InitializerExpression}
+    /// </summary>
+    /// <param name="model"></param>
+    /// <param name="expression"></param>
+    private void ConvertWithExpressionSyntax(SemanticModel model, WithExpressionSyntax expression)
+    {
+        //load record
+        ConvertExpression(model, expression.Expression);
+        //clone record struct
+        AddInstruction(new Instruction { OpCode = OpCode.UNPACK });
+        AddInstruction(new Instruction { OpCode = OpCode.PACKSTRUCT });
+        //convert InitializerExpression
+        ConvertObjectCreationExpressionInitializer(model, expression.Initializer);
     }
 
     private void ConvertSimpleLambdaExpression(SemanticModel model, SimpleLambdaExpressionSyntax expression)
