@@ -2,8 +2,9 @@ name: .NET Core Test and Publish
 
 on:
   push:
-    branches: [master]
+    branches: [dev]
   pull_request:
+    branches: [dev]
   workflow_dispatch:
 
 env:
@@ -93,7 +94,7 @@ jobs:
         file: ${{ github.workspace }}/coverage/lcov.info
 
   PublishPackage:
-    if: github.ref == 'refs/heads/master' && startsWith(github.repository, 'neo-project/')
+    if: github.ref == 'refs/heads/dev' && github.repository == 'Jim8y/neo-devpack-dotnet'
     needs: Test
     runs-on: ubuntu-latest
     steps:
@@ -176,21 +177,13 @@ jobs:
       working-directory: ./out
       run: |
         dotnet nuget push * \
-            --source https://nuget.pkg.github.com/neo-project/index.json \
+            --source https://nuget.pkg.github.com/Jim8y/index.json \
             --api-key "${{ secrets.GITHUB_TOKEN }}" \
-            --disable-buffering \
-            --no-service-endpoint;
-    - name: Publish to myGet
-      working-directory: ./out
-      run: |
-        dotnet nuget push * \
-            --source https://www.myget.org/F/neo/api/v3/index.json \
-            --api-key "${{ secrets.MYGET_TOKEN }}" \
             --disable-buffering \
             --no-service-endpoint;
 
   Release:
-    if: github.ref == 'refs/heads/master' && startsWith(github.repository, 'neo-project/')
+    if: github.ref == 'refs/heads/dev' && github.repository == 'Jim8y/neo-devpack-dotnet'
     needs: Test
     runs-on: ubuntu-latest
     steps:
