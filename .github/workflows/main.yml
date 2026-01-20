@@ -5,6 +5,15 @@ on:
     branches: [master, master-n3]
   pull_request:
   workflow_dispatch:
+    inputs:
+      package_id_prefix_override:
+        description: Replace Neo. prefix for test publishing (e.g., R3E.)
+        required: false
+        default: ""
+      version_suffix:
+        description: Optional NuGet version suffix (defaults to test.<run_id> for dispatch)
+        required: false
+        default: ""
 
 env:
   DOTNET_VERSION: 10.0.x
@@ -290,7 +299,9 @@ jobs:
       env:
         NUGET_SOURCE: https://api.nuget.org/v3/index.json
         NUGET_API_KEY: ${{ secrets.NUGET_TOKEN }}
-        VERSION_SUFFIX: test.${{ github.run_id }}
+        EVENT_NAME: ${{ github.event_name }}
+        VERSION_SUFFIX_INPUT: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.version_suffix || '' }}
+        PACKAGE_ID_PREFIX_OVERRIDE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.package_id_prefix_override || '' }}
       run: |
         set -euo pipefail
 
@@ -299,12 +310,25 @@ jobs:
           exit 1
         fi
 
+        VERSION_SUFFIX=""
+        if [[ "${EVENT_NAME}" == "workflow_dispatch" ]]; then
+          if [[ -n "${VERSION_SUFFIX_INPUT:-}" ]]; then
+            VERSION_SUFFIX="${VERSION_SUFFIX_INPUT}"
+          else
+            VERSION_SUFFIX="test.${GITHUB_RUN_ID}"
+          fi
+        fi
+
+        PACKAGE_ID_PREFIX_OVERRIDE="${PACKAGE_ID_PREFIX_OVERRIDE:-}"
+        if [[ -n "$PACKAGE_ID_PREFIX_OVERRIDE" ]]; then
+          echo "PackageId prefix override: $PACKAGE_ID_PREFIX_OVERRIDE"
+        fi
+
         OUTPUT_DIR="./pub"
         rm -rf "$OUTPUT_DIR"
         mkdir -p "$OUTPUT_DIR"
 
         VERSION=$(sed -n 's/.*<VersionPrefix>\(.*\)<\/VersionPrefix>.*/\1/p' ./src/Directory.Build.props | head -1)
-        VERSION_SUFFIX="${VERSION_SUFFIX:-}"
         RELEASE_VERSION="$VERSION"
         if [[ -n "$VERSION_SUFFIX" ]]; then
           RELEASE_VERSION="${VERSION}-${VERSION_SUFFIX}"
@@ -341,37 +365,54 @@ jobs:
           echo "Package base address: $PACKAGE_BASE"
         fi
 
+        rewrite_package_id() {
+          local package_name=$1
+          if [[ -n "$PACKAGE_ID_PREFIX_OVERRIDE" ]]; then
+            echo "${package_name/Neo./$PACKAGE_ID_PREFIX_OVERRIDE}"
+          else
+            echo "$package_name"
+          fi
+        }
+
         pack_and_push() {
           local project_path=$1
           local project_name
           project_name=$(basename "$project_path" .csproj)
+          local package_id
+          package_id=$(rewrite_package_id "$project_name")
 
           echo ""
-          echo "Processing $project_name..."
+          echo "Processing $project_name (package: $package_id)..."
           echo "-------------------------------------------------"
           local version_suffix_arg=()
+          local package_id_arg=()
           if [[ -n "$VERSION_SUFFIX" ]]; then
             version_suffix_arg=(--version-suffix "$VERSION_SUFFIX")
+          fi
+          if [[ -n "$PACKAGE_ID_PREFIX_OVERRIDE" ]]; then
+            package_id_arg=(-p:PackageIdPrefixOverride="$PACKAGE_ID_PREFIX_OVERRIDE")
           fi
 
           dotnet pack "$project_path" \
             --configuration Release \
             --output "$OUTPUT_DIR" \
             --no-restore \
-            "${version_suffix_arg[@]}"
+            "${version_suffix_arg[@]}" \
+            "${package_id_arg[@]}"
 
-          echo "Publishing $project_name to $NUGET_SOURCE..."
-          dotnet nuget push "$OUTPUT_DIR/$project_name.*.nupkg" \
+          echo "Publishing $package_id to $NUGET_SOURCE..."
+          dotnet nuget push "$OUTPUT_DIR/$package_id.*.nupkg" \
             --source "$NUGET_SOURCE" \
             --api-key "$NUGET_API_KEY" \
             --skip-duplicate \
             --no-service-endpoint
 
-          echo "✓ $project_name completed"
+          echo "✓ $package_id completed"
         }
 
         wait_for_package() {
-          local package_name=$1
+          local package_name
+          package_name=$(rewrite_package_id "$1")
           local version=$2
           local max_attempts=30
           local wait_time=10
