@@ -216,7 +216,7 @@ jobs:
         STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" https://github.com/${{ github.repository }}/releases/tag/${{ steps.get_version.outputs.version }})
         echo "statusCode=$STATUS_CODE" >> $GITHUB_OUTPUT
     - name: Setup .NET Core
-      if: steps.check_tag.outputs.statusCode == '404'
+      if: steps.check_tag.outputs.statusCode == '404' || github.event_name == 'workflow_dispatch'
       uses: actions/setup-dotnet@v5
       with:
         dotnet-version: ${{ env.DOTNET_VERSION }}
@@ -286,7 +286,7 @@ jobs:
           nccs-osx-arm64.tar.gz
           checksums.txt
     - name: Publish packages to NuGet (ordered)
-      if: steps.check_tag.outputs.statusCode == '404'
+      if: steps.check_tag.outputs.statusCode == '404' || github.event_name == 'workflow_dispatch'
       env:
         NUGET_SOURCE: https://api.nuget.org/v3/index.json
         NUGET_API_KEY: ${{ secrets.NUGET_TOKEN }}
