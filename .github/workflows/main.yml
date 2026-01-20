@@ -288,8 +288,9 @@ jobs:
     - name: Publish packages to NuGet (ordered)
       if: steps.check_tag.outputs.statusCode == '404'
       env:
-        NUGET_SOURCE: https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json
-        NUGET_API_KEY: ${{ secrets.GITHUB_TOKEN }}
+        NUGET_SOURCE: https://api.nuget.org/v3/index.json
+        NUGET_API_KEY: ${{ secrets.NUGET_TOKEN }}
+        VERSION_SUFFIX: test.${{ github.run_id }}
       run: |
         set -euo pipefail
 
@@ -303,7 +304,12 @@ jobs:
         mkdir -p "$OUTPUT_DIR"
 
         VERSION=$(sed -n 's/.*<VersionPrefix>\(.*\)<\/VersionPrefix>.*/\1/p' ./src/Directory.Build.props | head -1)
-        echo "Version to release: $VERSION"
+        VERSION_SUFFIX="${VERSION_SUFFIX:-}"
+        RELEASE_VERSION="$VERSION"
+        if [[ -n "$VERSION_SUFFIX" ]]; then
+          RELEASE_VERSION="${VERSION}-${VERSION_SUFFIX}"
+        fi
+        echo "Version to release: $RELEASE_VERSION"
 
         echo "Preparing solution..."
         cp neo-devpack-dotnet.sln neo-devpack-dotnet.release.sln
@@ -343,10 +349,16 @@ jobs:
           echo ""
           echo "Processing $project_name..."
           echo "-------------------------------------------------"
+          local version_suffix_arg=()
+          if [[ -n "$VERSION_SUFFIX" ]]; then
+            version_suffix_arg=(--version-suffix "$VERSION_SUFFIX")
+          fi
+
           dotnet pack "$project_path" \
             --configuration Release \
             --output "$OUTPUT_DIR" \
-            --no-restore
+            --no-restore \
+            "${version_suffix_arg[@]}"
 
           echo "Publishing $project_name to $NUGET_SOURCE..."
           dotnet nuget push "$OUTPUT_DIR/$project_name.*.nupkg" \
@@ -385,7 +397,7 @@ jobs:
         }
 
         pack_and_push "./src/Neo.SmartContract.Framework/Neo.SmartContract.Framework.csproj"
-        wait_for_package "Neo.SmartContract.Framework" "$VERSION"
+        wait_for_package "Neo.SmartContract.Framework" "$RELEASE_VERSION"
 
         pack_and_push "./src/Neo.SmartContract.Analyzer/Neo.SmartContract.Analyzer.csproj"
         pack_and_push "./src/Neo.Disassembler.CSharp/Neo.Disassembler.CSharp.csproj"
@@ -418,7 +430,7 @@ jobs:
         dotnet restore ./src/Neo.SmartContract.Testing/Neo.SmartContract.Testing.csproj
 
         pack_and_push "./src/Neo.SmartContract.Testing/Neo.SmartContract.Testing.csproj"
-        wait_for_package "Neo.SmartContract.Testing" "$VERSION"
+        wait_for_package "Neo.SmartContract.Testing" "$RELEASE_VERSION"
 
         mv "./src/Neo.SmartContract.Testing/Neo.SmartContract.Testing.csproj.backup" \
           "./src/Neo.SmartContract.Testing/Neo.SmartContract.Testing.csproj"
