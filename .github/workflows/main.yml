@@ -192,10 +192,13 @@ jobs:
             --no-service-endpoint;
 
   Release:
-    if: github.ref == 'refs/heads/master'
+    if: github.ref == 'refs/heads/master' || github.event_name == 'workflow_dispatch'
     needs: Test
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: write
+      packages: write
     steps:
     - name: Checkout
       uses: actions/checkout@v5
@@ -285,8 +288,8 @@ jobs:
     - name: Publish packages to NuGet (ordered)
       if: steps.check_tag.outputs.statusCode == '404'
       env:
-        NUGET_SOURCE: https://api.nuget.org/v3/index.json
-        NUGET_API_KEY: ${{ secrets.NUGET_TOKEN }}
+        NUGET_SOURCE: https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json
+        NUGET_API_KEY: ${{ secrets.GITHUB_TOKEN }}
       run: |
         set -euo pipefail
 
