@@ -14,6 +14,10 @@ on:
         description: Optional NuGet version suffix (defaults to test.<run_id> for dispatch)
         required: false
         default: ""
+      wait_for_packages:
+        description: Wait for NuGet indexing before proceeding (true/false)
+        required: false
+        default: "false"
 
 env:
   DOTNET_VERSION: 10.0.x
@@ -302,6 +306,7 @@ jobs:
         EVENT_NAME: ${{ github.event_name }}
         VERSION_SUFFIX_INPUT: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.version_suffix || '' }}
         PACKAGE_ID_PREFIX_OVERRIDE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.package_id_prefix_override || '' }}
+        WAIT_FOR_PACKAGES_INPUT: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.wait_for_packages || '' }}
       run: |
         set -euo pipefail
 
@@ -358,11 +363,17 @@ jobs:
         PACKAGE_BASE=$("$PYTHON_BIN" -c 'import json,sys,urllib.request as u; data=json.load(u.urlopen(sys.argv[1])); resources=data.get("resources", []); pkg=next((r for r in resources if any(t.startswith("PackageBaseAddress") for t in (lambda x: [x] if isinstance(x, str) else (x or []))(r.get("@type")))), None); print(pkg.get("@id","").rstrip("/")) if pkg else sys.exit(2)' "$NUGET_SOURCE") || true
 
         WAIT_FOR_PACKAGES=true
+        if [[ "${EVENT_NAME}" == "workflow_dispatch" && "${WAIT_FOR_PACKAGES_INPUT}" == "false" ]]; then
+          WAIT_FOR_PACKAGES=false
+        fi
         if [[ -z "$PACKAGE_BASE" ]]; then
           WAIT_FOR_PACKAGES=false
           echo "Warning: Could not resolve PackageBaseAddress from $NUGET_SOURCE; skipping package availability checks."
         else
           echo "Package base address: $PACKAGE_BASE"
+        fi
+        if [[ "$WAIT_FOR_PACKAGES" == "false" ]]; then
+          echo "Package availability checks disabled."
         fi
 
         rewrite_package_id() {
