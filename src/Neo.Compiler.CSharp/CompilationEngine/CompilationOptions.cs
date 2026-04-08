@@ -47,9 +47,23 @@ namespace Neo.Compiler
             Extended = 2,
         }
 
+        public enum CompilationTarget : byte
+        {
+            /// <summary>
+            /// Compile to NeoVM bytecode (default)
+            /// </summary>
+            NeoVM = 0,
+
+            /// <summary>
+            /// Compile to Rust source for RISC-V target
+            /// </summary>
+            RiscV = 1,
+        }
+
         public NullableContextOptions Nullable { get; set; }
         public DebugType Debug { get; set; } = DebugType.None;
         public OptimizationType Optimize { get; set; } = OptimizationType.Basic;
+        public CompilationTarget Target { get; set; } = CompilationTarget.NeoVM;
         public bool Checked { get; set; }
         public bool NoInline { get; set; }
         public byte AddressVersion { get; set; } = 0x35;
