@@ -14,10 +14,13 @@ extern alias scfx;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.CodeAnalysis.Diagnostics;
 using Neo.Json;
+using Neo.SmartContract.Analyzer;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
@@ -33,8 +36,10 @@ namespace Neo.Compiler
     public class CompilationEngine(CompilationOptions options)
     {
         internal Compilation? Compilation;
+        internal ImmutableArray<Diagnostic> AnalyzerDiagnostics { get; private set; } = [];
         internal CompilationOptions Options { get; private set; } = options;
         private static readonly MetadataReference[] CommonReferences;
+        private static readonly ImmutableArray<DiagnosticAnalyzer> NeoAnalyzers = NeoAnalyzerSuite.Create();
         private static readonly StringComparison ProjectPathComparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
         private readonly Dictionary<string, MetadataReference> MetaReferences = new();
         private string? PreparedProjectPath;
@@ -141,6 +146,7 @@ namespace Neo.Compiler
             IEnumerable<SyntaxTree> syntaxTrees = sourceFiles.OrderBy(p => p).Select(p => CSharpSyntaxTree.ParseText(File.ReadAllText(p), options: Options.GetParseOptions(), path: p));
             CSharpCompilationOptions compilationOptions = new(OutputKind.DynamicallyLinkedLibrary, deterministic: true, nullableContextOptions: Options.Nullable, allowUnsafe: false);
             Compilation = CSharpCompilation.Create(null, syntaxTrees, references, compilationOptions);
+            AnalyzeCompilation();
             return CompileProjectContracts(Compilation);
         }
 
@@ -210,6 +216,7 @@ namespace Neo.Compiler
 
             ResetProjectState();
             Compilation = GetCompilation(projectPath);
+            AnalyzeCompilation();
             ProjectPath = projectPath;
             return Compilation;
         }
@@ -217,6 +224,7 @@ namespace Neo.Compiler
         private void ResetProjectState()
         {
             Compilation = null;
+            AnalyzerDiagnostics = [];
             MetaReferences.Clear();
             PreparedProjectPath = null;
             ProjectPath = null;
@@ -224,6 +232,27 @@ namespace Neo.Compiler
             ProjectVersionPrefix = null;
             ProjectVersionSuffix = null;
             Contexts.Clear();
+        }
+
+        private void AnalyzeCompilation()
+        {
+            if (!Options.RunAnalyzers)
+            {
+                AnalyzerDiagnostics = [];
+                return;
+            }
+
+            AnalyzerDiagnostics = Compilation!
+                .WithAnalyzers(NeoAnalyzers)
+                .GetAnalyzerDiagnosticsAsync()
+                .GetAwaiter()
+                .GetResult()
+                .Where(diagnostic => diagnostic.Severity != DiagnosticSeverity.Hidden)
+                .OrderBy(diagnostic => diagnostic.Location.SourceTree?.FilePath ?? string.Empty, StringComparer.Ordinal)
+                .ThenBy(diagnostic => diagnostic.Location.IsInSource ? diagnostic.Location.SourceSpan.Start : -1)
+                .ThenBy(diagnostic => diagnostic.Id, StringComparer.Ordinal)
+                .ThenBy(diagnostic => diagnostic.GetMessage(), StringComparer.Ordinal)
+                .ToImmutableArray();
         }
 
         public List<CompilationContext> CompileProject(string csproj, List<INamedTypeSymbol> sortedClasses, Dictionary<INamedTypeSymbol, List<INamedTypeSymbol>> classDependencies, List<INamedTypeSymbol?> allClassSymbols, string? targetContractName = null)
